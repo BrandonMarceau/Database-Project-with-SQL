@@ -48,12 +48,58 @@ public class Artist extends Model {
         return all(0, Integer.MAX_VALUE);
     }
 
+    @Override
+    public boolean verify() {
+        _errors.clear();
+        if (name == null || "".equals(name)) {
+            addError("Artist Name cannot be null or blank!");
+        }
+        return !hasErrors();
+    }
+
+    @Override
+    public boolean update() {
+        if (verify()) {
+            try (Connection conn = DB.connect();
+                PreparedStatement stmt = conn.prepareStatement(
+                     "UPDATE artists SET Name=? WHERE artistId=?")) {
+                stmt.setString(1, this.getName());
+                stmt.setLong(2, this.getArtistId());
+                stmt.executeUpdate();
+                return true;
+            } catch (SQLException sqlException) {
+                throw new RuntimeException(sqlException);
+            }
+        } else {
+            return false;
+        }
+    }
+
+    @Override
+    public boolean create() {
+        if (verify()) {
+            try (Connection conn = DB.connect();
+                 PreparedStatement stmt = conn.prepareStatement(
+                         "INSERT INTO artists (Name) VALUES (?)")) {
+                stmt.setString(1, this.getName());
+                stmt.executeUpdate();
+                artistId = DB.getLastID(conn);
+                return true;
+            } catch (SQLException sqlException) {
+                throw new RuntimeException(sqlException);
+            }
+        } else {
+            return false;
+        }
+    }
+
     public static List<Artist> all(int page, int count) {
         try (Connection conn = DB.connect();
              PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT * FROM artists LIMIT ?"
+                     "SELECT * FROM artists LIMIT ? OFFSET ?"
              )) {
             stmt.setInt(1, count);
+            stmt.setInt(2, count*page - count);
             ResultSet results = stmt.executeQuery();
             List<Artist> resultList = new LinkedList<>();
             while (results.next()) {

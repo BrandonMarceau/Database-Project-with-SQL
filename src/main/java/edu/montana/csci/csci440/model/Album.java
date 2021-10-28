@@ -61,12 +61,65 @@ public class Album extends Model {
         return all(0, Integer.MAX_VALUE);
     }
 
+
+    @Override
+    public boolean verify() {
+        _errors.clear();
+        if (artistId == null || "".equals(artistId)){
+            addError("Artist Id cannot be null or blank!");
+        }
+        if (title == null || "".equals(title)) {
+            addError("Title cannot be null or blank!");
+        }
+        return !hasErrors();
+    }
+
+    @Override
+    public boolean update() {
+        if(verify()) {
+            try(Connection conn = DB.connect();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "UPDATE albums SET ArtistId=?, Title=? WHERE AlbumId=?")) {
+                stmt.setLong(1, this.getArtistId());
+                stmt.setString(2, this.getTitle());
+                stmt.setLong(3, this.getAlbumId());
+                stmt.executeUpdate();
+                return true;
+            } catch (SQLException sqlException) {
+                throw new RuntimeException(sqlException);
+            }
+        } else {
+            return false;
+        }
+    }
+
+    @Override
+    public boolean create() {
+        if (verify()) {
+            try (Connection conn = DB.connect();
+                 PreparedStatement stmt = conn.prepareStatement(
+                         "INSERT INTO albums(ArtistId, Title) VALUES (?,?)")) {
+                //stmt.setLong(1, this.getAlbumId());
+                stmt.setLong(1, this.getArtistId());
+                stmt.setString(2, this.getTitle());
+                stmt.executeUpdate();
+                albumId = DB.getLastID(conn);
+                return true;
+            } catch (SQLException sqlException) {
+                throw new RuntimeException(sqlException);
+            }
+        } else {
+            return false;
+        }
+    }
+
     public static List<Album> all(int page, int count) {
         try (Connection conn = DB.connect();
              PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT * FROM albums LIMIT ?"
+                     "SELECT * FROM albums LIMIT ? OFFSET ?"
              )) {
             stmt.setInt(1, count);
+            stmt.setInt(2, count*page-count);
             ResultSet results = stmt.executeQuery();
             List<Album> resultList = new LinkedList<>();
             while (results.next()) {

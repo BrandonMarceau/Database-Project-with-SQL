@@ -151,8 +151,20 @@ public class Employee extends Model {
         }
     }
     public Employee getBoss() {
-        //TODO implement
-        return null;
+        try (Connection conn = DB.connect();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "SELECT * FROM employess WHERE ReportsTo=?"
+             )) {
+            stmt.setLong(1, this.reportsTo);
+            ResultSet results =  stmt.executeQuery();
+            if (results.next()) {
+                return new Employee(results);
+            } else {
+                return null;
+            }
+        } catch (SQLException sqlException) {
+            throw new RuntimeException(sqlException);
+        }
     }
 
     public static List<Employee> all() {
