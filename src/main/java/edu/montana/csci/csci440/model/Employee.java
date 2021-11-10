@@ -44,6 +44,9 @@ public class Employee extends Model {
         if (lastName == null || "".equals(lastName)) {
             addError("LastName can't be null!");
         }
+        if(email == null || "".equals(email) || !email.contains("@")){
+            addError("Email can't be null or blank, and must be a valid email!");
+        }
         return !hasErrors();
     }
 
@@ -151,20 +154,7 @@ public class Employee extends Model {
         }
     }
     public Employee getBoss() {
-        try (Connection conn = DB.connect();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT * FROM employess WHERE ReportsTo=?"
-             )) {
-            stmt.setLong(1, this.reportsTo);
-            ResultSet results =  stmt.executeQuery();
-            if (results.next()) {
-                return new Employee(results);
-            } else {
-                return null;
-            }
-        } catch (SQLException sqlException) {
-            throw new RuntimeException(sqlException);
-        }
+        return find(getReportsTo());
     }
 
     public static List<Employee> all() {
@@ -174,9 +164,10 @@ public class Employee extends Model {
     public static List<Employee> all(int page, int count) {
         try (Connection conn = DB.connect();
              PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT * FROM employees LIMIT ?"
+                     "SELECT * FROM employees LIMIT ? OFFSET ?"
              )) {
             stmt.setInt(1, count);
+            stmt.setInt(2, page*count - count);
             ResultSet results = stmt.executeQuery();
             List<Employee> resultList = new LinkedList<>();
             while (results.next()) {
@@ -189,8 +180,20 @@ public class Employee extends Model {
     }
 
     public static Employee findByEmail(String newEmailAddress) {
-        throw new UnsupportedOperationException("Implement me");
+        try (Connection conn = DB.connect();
+             PreparedStatement stmt = conn.prepareStatement("SELECT * FROM employees WHERE Email=?")) {
+            stmt.setString(1, newEmailAddress);
+            ResultSet results = stmt.executeQuery();
+            if (results.next()) {
+                return new Employee(results);
+            } else {
+                return null;
+            }
+        } catch (SQLException sqlException) {
+            throw new RuntimeException(sqlException);
+        }
     }
+
 
     public static Employee find(long employeeId) {
         try (Connection conn = DB.connect();
@@ -213,6 +216,7 @@ public class Employee extends Model {
 
     public void setReportsTo(Employee employee) {
         // TODO implement
+        this.reportsTo = employee.getEmployeeId();
     }
 
     public static class SalesSummary {
