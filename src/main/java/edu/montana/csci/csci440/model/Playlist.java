@@ -24,9 +24,27 @@ public class Playlist extends Model {
     }
 
 
-    public List<Track> getTracks(){
+    public List<Track> getTracks() {
         // TODO implement, order by track name
-        return Collections.emptyList();
+        //return Collections.emptyList();
+        try (Connection conn = DB.connect();
+             PreparedStatement stmt = conn.prepareStatement("SELECT *, Albums.Title AS AlbumName,\n " +
+                     "Artists.Name AS ArtistName\n" +
+                     "FROM tracks\n" +
+                     "INNER JOIN playlist_track p ON tracks.TrackId = p.TrackId\n" +
+                     "INNER JOIN albums ON albums.AlbumId = tracks.AlbumId\n" +
+                     "INNER JOIN artists ON artists.ArtistId = albums.ArtistId\n" +
+                     "WHERE PlaylistId = ? ORDER BY tracks.Name ASC")) {
+            stmt.setLong(1, this.getPlaylistId());
+            ResultSet results = stmt.executeQuery();
+            List<Track> resultList = new LinkedList<>();
+            while (results.next()) {
+                resultList.add(new Track(results));
+            }
+            return resultList;
+        } catch (SQLException sqlException) {
+            throw new RuntimeException(sqlException);
+        }
     }
 
     public Long getPlaylistId() {
@@ -48,9 +66,10 @@ public class Playlist extends Model {
     public static List<Playlist> all(int page, int count) {
         try (Connection conn = DB.connect();
              PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT * FROM playlists LIMIT ?"
+                     "SELECT * FROM playlists LIMIT ? OFFSET ?"
              )) {
             stmt.setInt(1, count);
+            stmt.setInt(2, count*page - count);
             ResultSet results = stmt.executeQuery();
             List<Playlist> resultList = new LinkedList<>();
             while (results.next()) {

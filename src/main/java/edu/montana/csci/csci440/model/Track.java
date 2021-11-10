@@ -36,7 +36,7 @@ public class Track extends Model {
         unitPrice = new BigDecimal("0");
     }
 
-    private Track(ResultSet results) throws SQLException {
+    Track(ResultSet results) throws SQLException {
         name = results.getString("Name");
         milliseconds = results.getLong("Milliseconds");
         bytes = results.getLong("Bytes");
@@ -253,9 +253,10 @@ public class Track extends Model {
     public static List<Track> all(int page, int count, String orderBy) {
         try (Connection conn = DB.connect();
              PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT * FROM tracks LIMIT ?"
+                     "SELECT * FROM tracks LIMIT ? OFFSET ?"
              )) {
             stmt.setInt(1, count);
+            stmt.setInt(2, count*page - count);
             ResultSet results = stmt.executeQuery();
             List<Track> resultList = new LinkedList<>();
             while (results.next()) {
@@ -267,4 +268,40 @@ public class Track extends Model {
         }
     }
 
+    @Override
+    public boolean create() {
+        if (verify()) {
+            try (Connection conn = DB.connect();
+                 PreparedStatement stmt = conn.prepareStatement(
+                         "INSERT INTO tracks (AlbumId, MediaTypeId, GenreId, Name, Milliseconds, Bytes, UnitPrice) \n" +
+                         " VALUES (?, ?, ?, ?, ?, ?, ?)")) {
+                stmt.setLong(1, this.getAlbumId());
+                stmt.setLong(2, this.getMediaTypeId());
+                stmt.setLong(3, this.getGenreId());
+                stmt.setString(4, this.getName());
+                stmt.setLong(5, this.getMilliseconds());
+                stmt.setLong(6, this.getBytes());
+                stmt.setBigDecimal(7, this.getUnitPrice());
+                stmt.executeUpdate();
+                trackId = DB.getLastID(conn);
+                return true;
+            } catch (SQLException sqlException) {
+                throw new RuntimeException(sqlException);
+            }
+        } else {
+            return false;
+        }
+    }
+
+    @Override
+    public boolean verify() {
+        _errors.clear(); // clear any existing errors
+        if (name == null || "".equals(name)) {
+            addError("Name can't be null or blank!");
+        }
+        if (albumId == null || "".equals(albumId)) {
+            addError("Album ID can't be null or blank!");
+        }
+        return !hasErrors();
+    }
 }
