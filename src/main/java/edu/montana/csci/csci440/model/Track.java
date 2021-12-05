@@ -4,6 +4,7 @@ import edu.montana.csci.csci440.util.DB;
 import redis.clients.jedis.Client;
 import redis.clients.jedis.Jedis;
 
+import javax.xml.transform.Result;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.sql.Connection;
@@ -25,6 +26,8 @@ public class Track extends Model {
     private Long milliseconds;
     private Long bytes;
     private BigDecimal unitPrice;
+    private String ArtistName;
+    private String AlbumName;
 
     public static final String REDIS_CACHE_KEY = "cs440-tracks-count-cache";
 
@@ -45,11 +48,19 @@ public class Track extends Model {
         albumId = results.getLong("AlbumId");
         mediaTypeId = results.getLong("MediaTypeId");
         genreId = results.getLong("GenreId");
+        ArtistName = results.getString("ArtistName");
+        AlbumName = results.getString("AlbumName");
+
     }
 
     public static Track find(long i) {
         try (Connection conn = DB.connect();
-             PreparedStatement stmt = conn.prepareStatement("SELECT * FROM tracks WHERE TrackId=?")) {
+             PreparedStatement stmt = conn.prepareStatement(
+                     "SELECT tracks.*, Albums.Title as AlbumName, Artists.Name as ArtistName\n" +
+                             "FROM tracks\n" +
+                             "INNER JOIN albums ON albums.AlbumID = tracks.AlbumID\n" +
+                             "INNER JOIN artists ON artists.ArtistId = albums.ArtistId\n" +
+                             "WHERE TrackId=?")) {
             stmt.setLong(1, i);
             ResultSet results = stmt.executeQuery();
             if (results.next()) {
@@ -64,11 +75,17 @@ public class Track extends Model {
 
     public static Long count() {
         Jedis redisClient = new Jedis(); // use this class to access redis and create a cache
+        String stringVal = redisClient.get(REDIS_CACHE_KEY);
+        if(stringVal != null) {
+            return Long.parseLong(stringVal);
+        }
         try (Connection conn = DB.connect();
              PreparedStatement stmt = conn.prepareStatement("SELECT COUNT(*) as Count FROM tracks")) {
             ResultSet results = stmt.executeQuery();
             if (results.next()) {
-                return results.getLong("Count");
+                long count = results.getLong("Count");
+                redisClient.set(REDIS_CACHE_KEY, Long.toString(count));
+                return count;
             } else {
                 throw new IllegalStateException("Should find a count!");
             }
@@ -84,11 +101,31 @@ public class Track extends Model {
     public MediaType getMediaType() {
         return null;
     }
+
     public Genre getGenre() {
         return null;
     }
-    public List<Playlist> getPlaylists(){
-        return Collections.emptyList();
+
+    public List<Playlist> getPlaylists() {
+        try(Connection conn = DB.connect();
+            PreparedStatement stmt =conn.prepareStatement(
+                    "SELECT * \n" +
+                            "FROM playlists PL\n" +
+                            "INNER JOIN playlist_track pt ON pt.PlaylistId = PL.PlaylistId\n" +
+                            "INNER JOIN tracks t ON t.trackId = pt.TrackId\n" +
+                            "WHERE ? = pt.TrackId AND PL.PlaylistId = pt.PlaylistId\n"
+            )) {
+            stmt.setLong(1, this.getTrackId());
+            ResultSet results = stmt.executeQuery();
+            List<Playlist> resultList = new LinkedList<>();
+            while (results.next()) {
+                Playlist PlaylistAdd = new Playlist(results);
+                resultList.add(PlaylistAdd);
+            }
+            return resultList;
+        } catch (SQLException sqlException) {
+            throw new RuntimeException(sqlException);
+        }
     }
 
     public Long getTrackId() {
@@ -162,13 +199,15 @@ public class Track extends Model {
     public String getArtistName() {
         // TODO implement more efficiently
         //  hint: cache on this model object
-        return getAlbum().getArtist().getName();
+        //return getAlbum().getArtist().getName();
+        return ArtistName;
     }
 
     public String getAlbumTitle() {
         // TODO implement more efficiently
         //  hint: cache on this model object
-        return getAlbum().getTitle();
+        //return getAlbum().getTitle();
+        return AlbumName;
     }
 
     public static List<Track> advancedSearch(int page, int count,
@@ -176,9 +215,11 @@ public class Track extends Model {
                                              Integer maxRuntime, Integer minRuntime) {
         LinkedList<Object> args = new LinkedList<>();
 
-        String query = "SELECT * FROM tracks " +
-                "JOIN albums ON tracks.AlbumId = albums.AlbumId " +
-                "WHERE name LIKE ?";
+        String query = "SELECT tracks.*, Albums.Title AS AlbumName, Artists.Name AS ArtistName\n" +
+                "FROM tracks\n" +
+                "INNER JOIN albums on albums.AlbumId = tracks.AlbumId\n" +
+                "INNER JOIN artists on artists.ArtistId = albums.ArtistId" +
+                "WHERE tracks.name LIKE ?";
         args.add("%" + search + "%");
 
         // Conditionally include the query and argument
@@ -208,7 +249,11 @@ public class Track extends Model {
     }
 
     public static List<Track> search(int page, int count, String orderBy, String search) {
-        String query = "SELECT * FROM tracks WHERE name LIKE ? LIMIT ?";
+        String query = "SELECT tracks.*, Albums.Title AS AlbumName, Artists.Name as ArtistName\n" +
+                "FROM tracks\n" +
+                "INNER JOIN albums ON albums.AlbumId = tracks.AlbumId\n" +
+                "INNER JOIN artists ON artists.ArtistId = albums.ArtistId\n" +
+                "WHERE tracks.Name LIKE ? LIMIT ?";
         search = "%" + search + "%";
         try (Connection conn = DB.connect();
              PreparedStatement stmt = conn.prepareStatement(query)) {
@@ -226,7 +271,11 @@ public class Track extends Model {
     }
 
     public static List<Track> forAlbum(Long albumId) {
-        String query = "SELECT * FROM tracks WHERE AlbumId=?";
+        String query = "SELECT tracks.*, Albums.Title as AlbumName, Artists.Name as ArtistName " +
+                "FROM tracks " +
+                "INNER JOIN albums ON albums.AlbumId = tracks.AlbumId" +
+                "INNER JOIN artists ON tracks.Name = artists.Name" +
+                "WHERE tracks.AlbumId=?";
         try (Connection conn = DB.connect();
              PreparedStatement stmt = conn.prepareStatement(query)) {
             stmt.setLong(1, albumId);
@@ -253,7 +302,11 @@ public class Track extends Model {
     public static List<Track> all(int page, int count, String orderBy) {
         try (Connection conn = DB.connect();
              PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT * FROM tracks LIMIT ? OFFSET ?"
+                     "SELECT tracks.*, Albums.Title as AlbumName, Artists.Name as ArtistName\n" +
+                             "FROM tracks\n" +
+                             "INNER JOIN albums ON albums.AlbumID = tracks.AlbumID\n" +
+                             "INNER JOIN artists ON artists.ArtistId = albums.ArtistId\n" +
+                             "ORDER BY " + orderBy + " ASC LIMIT  ? OFFSET ?"
              )) {
             stmt.setInt(1, count);
             stmt.setInt(2, count*page - count);
@@ -270,10 +323,12 @@ public class Track extends Model {
 
     @Override
     public boolean create() {
+        Jedis redisClient = new Jedis();
+        redisClient.flushDB();
         if (verify()) {
             try (Connection conn = DB.connect();
                  PreparedStatement stmt = conn.prepareStatement(
-                         "INSERT INTO tracks (AlbumId, MediaTypeId, GenreId, Name, Milliseconds, Bytes, UnitPrice) \n" +
+                         "INSERT INTO tracks (AlbumId, MediaTypeId, GenreId, name, Milliseconds, Bytes, UnitPrice) \n" +
                          " VALUES (?, ?, ?, ?, ?, ?, ?)")) {
                 stmt.setLong(1, this.getAlbumId());
                 stmt.setLong(2, this.getMediaTypeId());
@@ -290,6 +345,40 @@ public class Track extends Model {
             }
         } else {
             return false;
+        }
+    }
+
+    @Override
+    public boolean update() {
+        if (verify()) {
+            try (Connection conn = DB.connect();
+                 PreparedStatement stmt = conn.prepareStatement(
+                         "UPDATE tracks  SET name=?, AlbumId=?  WHERE TrackId=?")) {
+                stmt.setString(1, this.getName());
+                stmt.setLong(2, this.getAlbumId());
+                stmt.setLong(3, this.getTrackId());
+
+                stmt.executeUpdate();
+                return true;
+            } catch (SQLException sqlException) {
+                throw new RuntimeException(sqlException);
+            }
+        } else {
+            return false;
+        }
+    }
+
+    @Override
+    public void delete() {
+        Jedis redisClient = new Jedis();
+        redisClient.flushDB();
+        try (Connection conn = DB.connect();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "DELETE FROM tracks WHERE TrackId=?")) {
+            stmt.setLong(1, this.getTrackId());
+            stmt.executeUpdate();
+        } catch (SQLException sqlException) {
+            throw new RuntimeException(sqlException);
         }
     }
 
