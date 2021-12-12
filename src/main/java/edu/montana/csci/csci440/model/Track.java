@@ -218,13 +218,13 @@ public class Track extends Model {
         String query = "SELECT tracks.*, Albums.Title AS AlbumName, Artists.Name AS ArtistName\n" +
                 "FROM tracks\n" +
                 "INNER JOIN albums on albums.AlbumId = tracks.AlbumId\n" +
-                "INNER JOIN artists on artists.ArtistId = albums.ArtistId" +
+                "INNER JOIN artists on artists.ArtistId = albums.ArtistId\n" +
                 "WHERE tracks.name LIKE ?";
         args.add("%" + search + "%");
 
         // Conditionally include the query and argument
         if (artistId != null) {
-            query += " AND ArtistId=? ";
+            query += " AND artists.ArtistId=? ";
             args.add(artistId);
         }
 
